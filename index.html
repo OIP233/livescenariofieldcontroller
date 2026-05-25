@@ -1712,6 +1712,16 @@ function validateScenario(sc) {
   if (sc.participant?.startLocationId && !sc.locations?.find(l => l.id === sc.participant.startLocationId)) {
     issues.push({ tab:'basis', msg: 'Startlocatie verwijst naar onbekende locatie' });
   }
+  // Startlocatie hoort overeen te komen met de locatie van de prep-fase
+  // (de Player verplaatst de deelnemer per fase op basis van de SOP-stap-locaties).
+  if (sc.participant?.startLocationId && sc.sop?.steps?.length) {
+    const prepSteps = sc.sop.steps.filter(s => s.phase === 'prep')
+                                  .sort((a,b) => (a.order||0)-(b.order||0));
+    const prepLoc = prepSteps.find(s => s.locationId)?.locationId;
+    if (prepLoc && prepLoc !== sc.participant.startLocationId) {
+      issues.push({ tab:'basis', msg: 'Startlocatie wijkt af van de locatie van de voorbereidingsstappen' });
+    }
+  }
   return issues;
 }
 
