@@ -1642,11 +1642,79 @@ function loadExample() {
 function editScenario(idx) {
   const sc = STATE.scenarios[idx];
   if (!sc) return;
-  STATE.current = deepClone(sc);
-  STATE.originalSnapshot = deepClone(sc);
+  STATE.current = normalizeScenario(deepClone(sc));
+  STATE.originalSnapshot = deepClone(STATE.current);
   STATE.unsavedChanges = false;
   STATE.currentTab = 'basis';
   showEditor();
+}
+
+/**
+ * Vul ontbrekende velden in voor het scenario-type, en ruim verouderde velden op.
+ * Voorkomt dat oude scenario's met een ouder schema breken in nieuwe editor-versies.
+ */
+function normalizeScenario(sc) {
+  if (!sc || typeof sc !== 'object') return sc;
+
+  // Gedeelde velden — geldig voor beide types
+  if (!sc.roles)        sc.roles = [];
+  if (!sc.locations)    sc.locations = [];
+  if (!sc.holdPoints)   sc.holdPoints = [];
+  if (!sc.participant)  sc.participant = { namePlaceholder: 'Voor- en achternaam', startLocationId: '' };
+  if (!sc.briefing)     sc.briefing = { slideUrl: '', dur: 60, dir: '' };
+  if (!sc.settings)     sc.settings = { debriefDelay: false };
+  if (!sc.instructor)   sc.instructor = { mode: 'observerend', endReflectionQuestion: '', sceneSpecificProbes: [] };
+  if (!sc.instructor.sceneSpecificProbes) sc.instructor.sceneSpecificProbes = [];
+
+  if (sc.scenarioType === 'incident') {
+    // Incident — player-compatible schema garanderen
+    if (!sc.initialEvent)           sc.initialEvent = { type: 'observation', location: '', description: '', urgency: 'medium' };
+    if (!Array.isArray(sc.expectedActions)) sc.expectedActions = [];
+    if (!sc.referenceProcedure)     sc.referenceProcedure = { title: '', reference: '', summary: '', guidelines: [] };
+    if (!Array.isArray(sc.referenceProcedure.guidelines)) sc.referenceProcedure.guidelines = [];
+    if (!sc.participantActionLog)   sc.participantActionLog = { enabled: true, placeholder: '' };
+    if (!sc.phaseConfig)            sc.phaseConfig = {};
+    PHASES_INC.forEach(p => { if (!sc.phaseConfig[p]) sc.phaseConfig[p] = { dir: '' }; });
+    // Strip legacy phase keys (onset/respond/secure waren v5)
+    ['onset','respond','secure'].forEach(p => { if (p in sc.phaseConfig) delete sc.phaseConfig[p]; });
+    if (!sc.storylineUrls)          sc.storylineUrls = {};
+    PHASES_INC.forEach(p => { if (!(p in sc.storylineUrls)) sc.storylineUrls[p] = ''; });
+    if (!sc.ambientByPhase)         sc.ambientByPhase = {};
+    PHASES_INC.forEach(p => { if (!(p in sc.ambientByPhase)) sc.ambientByPhase[p] = null; });
+    ['onset','respond','secure'].forEach(p => { if (p in sc.ambientByPhase) delete sc.ambientByPhase[p]; });
+    if (sc.workPermit === undefined) sc.workPermit = null;
+    if (sc.timeToFirstActionTarget === undefined) sc.timeToFirstActionTarget = 60;
+    // Cleanup: oud v5-incident-blok strippen indien aanwezig (data is achterhaald)
+    if (sc.incident) delete sc.incident;
+    // Cleanup: oude single-URL storyline naar de juiste plek migreren als er nog niets staat
+    if (sc.storylineUrl && !sc.storylineUrls.assess) {
+      sc.storylineUrls.assess = sc.storylineUrl;
+    }
+    if ('storylineUrl' in sc) delete sc.storylineUrl;
+    // Cleanup: oude normTime van v5-incident (niet in player-schema voor incidents)
+    if ('normTime' in sc) delete sc.normTime;
+  } else {
+    // Procedural — vereiste velden garanderen
+    if (!sc.sop)         sc.sop = { title: '', reference: '', summary: '', steps: [] };
+    if (!Array.isArray(sc.sop.steps)) sc.sop.steps = [];
+    if (!sc.assignment)  sc.assignment = { title: '', prepActions: [], executeActions: [], secureAdvice: '' };
+    if (!Array.isArray(sc.assignment.prepActions))    sc.assignment.prepActions = [];
+    if (!Array.isArray(sc.assignment.executeActions)) sc.assignment.executeActions = [];
+    if (!sc.phaseConfig) sc.phaseConfig = {};
+    PHASES_PROC.forEach(p => { if (!sc.phaseConfig[p]) sc.phaseConfig[p] = { dir: '' }; });
+    if (!sc.ambientByPhase) sc.ambientByPhase = {};
+    PHASES_PROC.forEach(p => { if (!(p in sc.ambientByPhase)) sc.ambientByPhase[p] = null; });
+    if (!sc.deviation)   sc.deviation = {
+      triggerAfterStepId: '', trigger: 'after-step', description: '',
+      onsetCue: '', rootCause: '', correctResponse: '',
+      commonMistakes: [], lsrViolationsAtRisk: []
+    };
+    if (!sc.workPermit)  sc.workPermit = { enabled: false, number: '', task: '', validUntil: '',
+      requiredPPE: { standardSet: true, additional: [] }, requireLMRA: true, lmraQuestions: [],
+      onSiteLMRA: { required: true, prompt: '', confirmLabel: 'LMRA uitgevoerd — situatie veilig', minReflectionSec: 5 } };
+  }
+
+  return sc;
 }
 
 function duplicateScenario(idx) {
@@ -1724,7 +1792,7 @@ function handleImportFile(e) {
         obj.id = obj.id + '_imported_' + Date.now();
         toast('ID conflicteerde — hernoemd naar ' + obj.id, 'warn');
       }
-      STATE.scenarios.push(obj);
+      STATE.scenarios.push(normalizeScenario(obj));
       saveToStorage();
       renderList();
       toast('Scenario geïmporteerd', 'success');
@@ -1935,7 +2003,12 @@ function closeModal() {
 
 /* ───── 15. ARRAY HELPERS (in-tab actions) ───── */
 function arrayAdd(path, template) {
-  const arr = getPath(STATE.current, path);
+  let arr = getPath(STATE.current, path);
+  if (arr === undefined || arr === null) {
+    // Pad bestaat nog niet — maak een lege array aan zodat de knop nooit stilzwijgend faalt
+    setPath(STATE.current, path, []);
+    arr = getPath(STATE.current, path);
+  }
   if (!Array.isArray(arr)) return;
   arr.push(typeof template === 'function' ? template() : deepClone(template));
   markUnsaved();
