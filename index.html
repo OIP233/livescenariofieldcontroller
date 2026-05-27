@@ -472,6 +472,10 @@ input, textarea, select { font-family: inherit; }
 }
 .tab-btn.has-issue .tab-issue-dot { display: inline-block; }
 
+/* ───── Tab visibility per scenario type ───── */
+.tab-strip[data-scenario-type="procedural"] .tab-btn[data-only-type="incident"] { display: none; }
+.tab-strip[data-scenario-type="incident"]   .tab-btn[data-only-type="procedural"] { display: none; }
+
 .tab-content { padding-bottom: 80px; }
 .tab-content.hidden { display: none; }
 
@@ -710,6 +714,26 @@ select {
   color: var(--text-2);
   line-height: 1.55;
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+.section-warn {
+  background: var(--amber-soft);
+  border-left: 3px solid var(--amber);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  color: var(--amber-hi);
+  line-height: 1.5;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.section-warn::before {
+  content: '⚠';
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--amber);
 }
 
 /* ───── Sticky save bar ───── */
@@ -955,12 +979,13 @@ select {
   <div class="list-header">
     <div>
       <h2>Veldscenario's</h2>
-      <div class="subtitle">Beheer en bewerk procedural veldscenario's. Opslag lokaal in browser, plus import/export via JSON.</div>
+      <div class="subtitle">Beheer en bewerk procedural en incident veldscenario's. Opslag lokaal in browser, plus import/export via JSON.</div>
     </div>
     <div class="list-actions">
       <button class="btn btn-ghost" onclick="loadExample()">Voorbeeld laden</button>
       <button class="btn btn-ghost" onclick="triggerImport()">JSON importeren</button>
-      <button class="btn btn-primary" onclick="newScenario()">+ Nieuw scenario</button>
+      <button class="btn btn-primary" onclick="newScenario('procedural')">+ Procedural</button>
+      <button class="btn btn-primary" onclick="newScenario('incident')">+ Incident</button>
     </div>
   </div>
   <div id="scenario-grid"></div>
@@ -985,9 +1010,10 @@ select {
     <button class="tab-btn active" data-tab="basis" onclick="switchTab('basis')">Scenario<span class="tab-issue-dot"></span></button>
     <button class="tab-btn" data-tab="rollen" onclick="switchTab('rollen')">Rollen<span class="tab-issue-dot"></span></button>
     <button class="tab-btn" data-tab="locaties" onclick="switchTab('locaties')">Locaties<span class="tab-issue-dot"></span></button>
-    <button class="tab-btn" data-tab="taak" onclick="switchTab('taak')">Taak &amp; procedure<span class="tab-issue-dot"></span></button>
+    <button class="tab-btn" data-tab="taak" data-only-type="procedural" onclick="switchTab('taak')">Taak &amp; procedure<span class="tab-issue-dot"></span></button>
+    <button class="tab-btn" data-tab="incident" data-only-type="incident" onclick="switchTab('incident')">Incident &amp; respons<span class="tab-issue-dot"></span></button>
     <button class="tab-btn" data-tab="holdpoints" onclick="switchTab('holdpoints')">Hold-points<span class="tab-issue-dot"></span></button>
-    <button class="tab-btn" data-tab="permit" onclick="switchTab('permit')">Werkopdracht &amp; LMRA<span class="tab-issue-dot"></span></button>
+    <button class="tab-btn" data-tab="permit" data-only-type="procedural" onclick="switchTab('permit')">Werkopdracht &amp; LMRA<span class="tab-issue-dot"></span></button>
     <button class="tab-btn" data-tab="beleving" onclick="switchTab('beleving')">Instructeur &amp; AI-context<span class="tab-issue-dot"></span></button>
   </div>
 
@@ -1019,7 +1045,7 @@ select {
 
 /* ───── 1. CONSTANTS ───── */
 const STORAGE_KEY = 'oip_field_controller_scenarios_v1';
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const LIFE_SAVING_RULES = {
   'bypassing-safety-controls': 'Bypassing Safety Controls',
@@ -1055,6 +1081,24 @@ const PHASE_LABELS = {
   secure:    'Veiligstellen',
 };
 
+const PHASES_INC = ['onset','respond','secure'];
+const PHASE_LABELS_INC = {
+  onset:   'Onset',
+  respond: 'Respond',
+  secure:  'Secure',
+};
+
+const INCIDENT_TYPES = [
+  { id: 'gas-release',  label: 'Gaslekkage / -release' },
+  { id: 'fire',         label: 'Brand' },
+  { id: 'spill',        label: 'Lekkage / morsing (vloeistof)' },
+  { id: 'medical',      label: 'Medisch incident' },
+  { id: 'fall',         label: 'Val / valgevaar' },
+  { id: 'electrical',   label: 'Elektrisch incident' },
+  { id: 'structural',   label: 'Structureel falen (constructie/leiding)' },
+  { id: 'other',        label: 'Anders' },
+];
+
 const INSTRUCTOR_MODES = {
   'stil':         'Stil — alleen bij hold-point-dreiging + debrief',
   'observerend':  'Observerend — bovenstaande + eind-reflectie (DEFAULT)',
@@ -1068,6 +1112,7 @@ const AMBIENT_PRESETS = [
   { id: 'cavitation',    label: 'Cavitatie (synth)' },
   { id: 'hiss-wind',     label: 'Sissend lek + wind (synth)' },
   { id: 'hiss-heartbeat',label: 'Lek + verhoogde hartslag (synth)' },
+  { id: 'heartbeat',     label: 'Verhoogde hartslag (synth)' },
   { id: 'air-release',   label: 'Persluchtontlasting (synth)' },
   { id: 'outdoor-unit',  label: 'Buiten unit, achtergrond (synth)' },
   { id: 'control-room',  label: 'Controlekamer (synth)' },
@@ -1163,7 +1208,68 @@ function newProceduralScenario() {
   };
 }
 
-/* Pomp P-101 — overgenomen uit de Player als voorbeeld */
+function newIncidentScenario() {
+  const ts = Date.now();
+  return {
+    scenarioFormat: 'field-v1',
+    schemaVersion: SCHEMA_VERSION,
+    scenarioType: 'incident',
+    id: 'sc_field_inc_new_' + ts,
+    title: 'Nieuw incident scenario',
+    organization: '',
+    description: '',
+    storylineUrl: '',
+    storylineModuleId: '',
+    briefing: {
+      slideUrl: '',
+      dur: 30,
+      dir: '',
+    },
+    phaseConfig: {
+      onset:   { dir: '' },
+      respond: { dir: '' },
+      secure:  { dir: '' },
+    },
+    incident: {
+      type: '',
+      onsetCue: '',
+      onsetTrigger: 'on-arrival',     // 'immediate' | 'on-arrival' | 'after-delay'
+      onsetDelaySec: 0,
+      severity: 3,                    // 1..5 — bepaalt visuele urgentie-intensiteit
+      affectedArea: '',
+      escalationIfIgnored: '',
+      responseWindowSec: 180,         // 0 = geen timer
+      showCountdown: true,            // timer zichtbaar voor deelnemer
+      correctResponsePriorities: [],  // [{ order, action, rationale }]
+      commonMistakes: [],             // string[]
+      lsrViolationsAtRisk: [],        // string[]
+    },
+    holdPoints: [],
+    instructor: {
+      mode: 'observerend',
+      endReflectionQuestion: '',
+      sceneSpecificProbes: [],
+    },
+    roles: [],
+    locations: [],
+    participant: {
+      namePlaceholder: 'Voor- en achternaam',
+      startLocationId: '',
+    },
+    difficulty: 3,
+    normTime: 300,
+    ambientByPhase: {
+      onset:   null,
+      respond: null,
+      secure:  null,
+    },
+    aiExtra: '',
+    settings: {
+      debriefDelay: false,
+      stopThinkPauseSec: 4,           // pauze na onset-cue voordat acties mogelijk zijn
+    },
+  };
+}
 function getSamplePumpScenario() {
   return {
     scenarioFormat: "field-v1",
@@ -1397,8 +1503,18 @@ function showEditor() {
   document.getElementById('view-list').classList.remove('active');
   document.getElementById('view-editor').classList.add('active');
   document.getElementById('topbar-back').style.display = 'inline-flex';
+  // Set the scenario-type on the tab strip so CSS hides the irrelevant tabs
+  const tabStrip = document.getElementById('tab-strip');
+  const scType = STATE.current?.scenarioType === 'incident' ? 'incident' : 'procedural';
+  tabStrip.setAttribute('data-scenario-type', scType);
+  // If the remembered current tab belongs to the other type, fall back to 'basis'
+  let initialTab = STATE.currentTab || 'basis';
+  const initialBtn = tabStrip.querySelector(`.tab-btn[data-tab="${initialTab}"]`);
+  if (initialBtn && initialBtn.dataset.onlyType && initialBtn.dataset.onlyType !== scType) {
+    initialTab = 'basis';
+  }
   renderEditorHeader();
-  switchTab(STATE.currentTab || 'basis');
+  switchTab(initialTab);
   updateUnsavedIndicator();
   refreshTabIssueIndicators();
 }
@@ -1430,28 +1546,36 @@ function renderList() {
     grid.innerHTML = `
       <div class="empty-list-state">
         <h3>Nog geen scenario's</h3>
-        <p>Maak een nieuw scenario, laad het voorbeeld pomp P-101, of importeer een JSON-bestand.</p>
-        <div style="display:flex;gap:10px;justify-content:center">
+        <p>Maak een procedural- of incident-scenario, laad het voorbeeld pomp P-101, of importeer een JSON-bestand.</p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
           <button class="btn btn-ghost" onclick="loadExample()">Voorbeeld laden</button>
-          <button class="btn btn-primary" onclick="newScenario()">+ Nieuw scenario</button>
+          <button class="btn btn-primary" onclick="newScenario('procedural')">+ Procedural</button>
+          <button class="btn btn-primary" onclick="newScenario('incident')">+ Incident</button>
         </div>
       </div>`;
     return;
   }
   grid.className = 'scenario-grid';
   grid.innerHTML = STATE.scenarios.map((sc, i) => renderScenarioCard(sc, i)).join('') +
-    `<div class="scenario-card scenario-card-empty" onclick="newScenario()">
+    `<div class="scenario-card scenario-card-empty" onclick="newScenario('procedural')">
        <div class="plus">+</div>
-       <div>Nieuw scenario</div>
+       <div>Nieuw procedural</div>
+     </div>
+     <div class="scenario-card scenario-card-empty" onclick="newScenario('incident')">
+       <div class="plus">+</div>
+       <div>Nieuw incident</div>
      </div>`;
 }
 
 function renderScenarioCard(sc, idx) {
-  const typeLabel = sc.scenarioType === 'incident' ? 'Incident' : 'Procedural';
-  const typeBadge = sc.scenarioType === 'incident' ? 'badge-inc' : 'badge-proc';
-  const stepCount = sc.sop?.steps?.length || 0;
+  const isIncident = sc.scenarioType === 'incident';
+  const typeLabel = isIncident ? 'Incident' : 'Procedural';
+  const typeBadge = isIncident ? 'badge-inc' : 'badge-proc';
   const hpCount = sc.holdPoints?.length || 0;
   const roleCount = sc.roles?.length || 0;
+  const detailBadge = isIncident
+    ? `<span class="badge badge-meta">${sc.incident?.correctResponsePriorities?.length || 0} respons-prioriteiten</span>`
+    : `<span class="badge badge-meta">${sc.sop?.steps?.length || 0} SOP-stappen</span>`;
   return `
     <div class="scenario-card" onclick="editScenario(${idx})">
       <div class="scenario-card-actions" onclick="event.stopPropagation()">
@@ -1469,15 +1593,16 @@ function renderScenarioCard(sc, idx) {
       <div class="scenario-card-meta">
         <span class="badge ${typeBadge}">${typeLabel}</span>
         ${sc.difficulty ? `<span class="badge badge-meta">★ ${sc.difficulty}/5</span>` : ''}
-        <span class="badge badge-meta">${stepCount} SOP-stappen</span>
+        ${detailBadge}
         <span class="badge badge-meta">${hpCount} hold-points</span>
         <span class="badge badge-meta">${roleCount} rollen</span>
       </div>
     </div>`;
 }
 
-function newScenario() {
-  STATE.current = newProceduralScenario();
+function newScenario(type) {
+  type = type || 'procedural';
+  STATE.current = (type === 'incident') ? newIncidentScenario() : newProceduralScenario();
   STATE.originalSnapshot = null; // brand new
   STATE.unsavedChanges = true;
   STATE.currentTab = 'basis';
@@ -1690,38 +1815,54 @@ function updateFieldBool(path, value) {
 /* ───── 11. VALIDATION ───── */
 function validateScenario(sc) {
   const issues = [];
+  const isIncident = sc.scenarioType === 'incident';
+
+  // Shared validation
   if (!sc.title?.trim()) issues.push({ tab:'basis', msg: 'Titel ontbreekt' });
   if (!sc.id?.trim())    issues.push({ tab:'basis', msg: 'ID ontbreekt' });
   if (!sc.description?.trim()) issues.push({ tab:'basis', msg: 'Beschrijving ontbreekt' });
   if (!sc.roles?.length) issues.push({ tab:'rollen', msg: 'Geen rollen gedefinieerd' });
   if (!sc.locations?.length) issues.push({ tab:'locaties', msg: 'Geen locaties gedefinieerd' });
-  if (!sc.sop?.steps?.length) issues.push({ tab:'taak', msg: 'Geen SOP-stappen' });
-  if (!sc.assignment?.executeActions?.length) issues.push({ tab:'taak', msg: 'Geen executeActions' });
   if (!sc.holdPoints?.length) issues.push({ tab:'holdpoints', msg: 'Geen hold-points' });
-  if (sc.workPermit?.enabled && !sc.workPermit?.task?.trim()) {
-    issues.push({ tab:'permit', msg: 'Werkopdracht ingeschakeld maar taakomschrijving ontbreekt' });
-  }
-  if (sc.workPermit?.requireLMRA && (!sc.workPermit?.lmraQuestions?.length)) {
-    issues.push({ tab:'permit', msg: 'LMRA-voorbereiding vereist maar geen aandachtspunten ingevuld' });
-  }
-  if (sc.workPermit?.onSiteLMRA?.required && !sc.workPermit?.onSiteLMRA?.prompt?.trim()) {
-    issues.push({ tab:'permit', msg: 'LMRA op locatie vereist maar geen reflectievraag ingevuld' });
-  }
   if (!sc.instructor?.mode) issues.push({ tab:'beleving', msg: 'Geen instructor mode' });
-  // participant.startLocationId moet bestaan
   if (sc.participant?.startLocationId && !sc.locations?.find(l => l.id === sc.participant.startLocationId)) {
     issues.push({ tab:'basis', msg: 'Startlocatie verwijst naar onbekende locatie' });
   }
-  // Startlocatie hoort overeen te komen met de locatie van de prep-fase
-  // (de Player verplaatst de deelnemer per fase op basis van de SOP-stap-locaties).
-  if (sc.participant?.startLocationId && sc.sop?.steps?.length) {
-    const prepSteps = sc.sop.steps.filter(s => s.phase === 'prep')
-                                  .sort((a,b) => (a.order||0)-(b.order||0));
-    const prepLoc = prepSteps.find(s => s.locationId)?.locationId;
-    if (prepLoc && prepLoc !== sc.participant.startLocationId) {
-      issues.push({ tab:'basis', msg: 'Startlocatie wijkt af van de locatie van de voorbereidingsstappen' });
+
+  if (isIncident) {
+    // Incident-specific validation
+    if (!sc.incident?.type) issues.push({ tab:'incident', msg: 'Incident-type ontbreekt' });
+    if (!sc.incident?.onsetCue?.trim()) issues.push({ tab:'incident', msg: 'Onset-cue ontbreekt' });
+    if (!sc.incident?.correctResponsePriorities?.length) {
+      issues.push({ tab:'incident', msg: 'Geen respons-prioriteiten gedefinieerd' });
+    }
+    if (!sc.incident?.escalationIfIgnored?.trim()) {
+      issues.push({ tab:'incident', msg: 'Escalatiebeschrijving ontbreekt (wat gebeurt als deelnemer niet adequaat reageert)' });
+    }
+  } else {
+    // Procedural-specific validation
+    if (!sc.sop?.steps?.length) issues.push({ tab:'taak', msg: 'Geen SOP-stappen' });
+    if (!sc.assignment?.executeActions?.length) issues.push({ tab:'taak', msg: 'Geen executeActions' });
+    if (sc.workPermit?.enabled && !sc.workPermit?.task?.trim()) {
+      issues.push({ tab:'permit', msg: 'Werkopdracht ingeschakeld maar taakomschrijving ontbreekt' });
+    }
+    if (sc.workPermit?.requireLMRA && (!sc.workPermit?.lmraQuestions?.length)) {
+      issues.push({ tab:'permit', msg: 'LMRA-voorbereiding vereist maar geen aandachtspunten ingevuld' });
+    }
+    if (sc.workPermit?.onSiteLMRA?.required && !sc.workPermit?.onSiteLMRA?.prompt?.trim()) {
+      issues.push({ tab:'permit', msg: 'LMRA op locatie vereist maar geen reflectievraag ingevuld' });
+    }
+    // Startlocatie hoort overeen te komen met de locatie van de prep-fase
+    if (sc.participant?.startLocationId && sc.sop?.steps?.length) {
+      const prepSteps = sc.sop.steps.filter(s => s.phase === 'prep')
+                                    .sort((a,b) => (a.order||0)-(b.order||0));
+      const prepLoc = prepSteps.find(s => s.locationId)?.locationId;
+      if (prepLoc && prepLoc !== sc.participant.startLocationId) {
+        issues.push({ tab:'basis', msg: 'Startlocatie wijkt af van de locatie van de voorbereidingsstappen' });
+      }
     }
   }
+
   return issues;
 }
 
@@ -1800,14 +1941,24 @@ const TAB_RENDERERS = {};
 /* — BASIS — */
 TAB_RENDERERS.basis = function() {
   const sc = STATE.current;
+  const isIncident = sc.scenarioType === 'incident';
+  const typeLabel = isIncident ? 'Incident' : 'Procedural';
+  const typeBadgeCls = isIncident ? 'badge-inc' : 'badge-proc';
   const locOptions = ['<option value="">— kies locatie —</option>']
     .concat((sc.locations || []).map(l =>
       `<option value="${escapeAttr(l.id)}" ${sc.participant?.startLocationId === l.id ? 'selected' : ''}>${escapeHtml(l.label || l.id)}</option>`
     )).join('');
 
+  // Briefing character counter — soft cue for incident scenarios to keep briefings short & punchy
+  const briefingLen = (sc.briefing?.dir || '').length;
+  const briefingCap = 300;
+  const briefingHelp = isIncident
+    ? `Bij incident-scenario's: kort & krachtig. Alleen scene-setting — geen taakuitleg, geen procedurereferentie. <span id="briefing-counter" style="font-family:var(--mono);font-size:11px;color:${briefingLen > briefingCap ? 'var(--amber)' : 'var(--text-dim)'};margin-left:8px">${briefingLen}/${briefingCap}</span>`
+    : `De korte tekst die de deelnemer ziet vóór scenario-start. Beschrijft context, wat er moet gebeuren en eventueel achtergrondinformatie.`;
+
   return `
     <div class="section">
-      <div class="section-title">Identificatie</div>
+      <div class="section-title">Identificatie <span class="badge ${typeBadgeCls}" style="margin-left:auto">${typeLabel}</span></div>
       <div class="form-row">
         <div class="form-group">
           <label class="field-label">Scenario-ID <span class="required">*</span><span class="hint">technisch, geen spaties</span></label>
@@ -1836,15 +1987,15 @@ TAB_RENDERERS.basis = function() {
 
     <div class="section">
       <div class="section-title">Briefing</div>
-      <div class="section-help">De korte tekst die de deelnemer ziet vóór scenario-start. Beschrijft context, wat er moet gebeuren en eventueel achtergrondinformatie.</div>
+      <div class="section-help">${briefingHelp}</div>
       <div class="form-group">
         <label class="field-label">Briefing-tekst</label>
-        <textarea rows="3" oninput="updateField('briefing.dir', this.value)">${escapeHtml(sc.briefing?.dir || '')}</textarea>
+        <textarea rows="3" oninput="updateField('briefing.dir', this.value); ${isIncident ? "updateBriefingCounter(this.value.length)" : ""}">${escapeHtml(sc.briefing?.dir || '')}</textarea>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label class="field-label">Briefing-duur (seconden)</label>
-          <input type="number" min="0" value="${sc.briefing?.dur ?? 60}" oninput="updateFieldNum('briefing.dur', this.value)">
+          <input type="number" min="0" value="${sc.briefing?.dur ?? (isIncident ? 30 : 60)}" oninput="updateFieldNum('briefing.dur', this.value)">
         </div>
         <div class="form-group">
           <label class="field-label">Briefing-slide URL <span class="hint">optioneel — Storyline / afbeelding</span></label>
@@ -1857,8 +2008,8 @@ TAB_RENDERERS.basis = function() {
       <div class="section-title">Timing & deelnemer</div>
       <div class="form-row">
         <div class="form-group">
-          <label class="field-label">Normtijd (seconden) <span class="hint">richttijd voor uitvoering</span></label>
-          <input type="number" min="0" value="${sc.normTime ?? 600}" oninput="updateFieldNum('normTime', this.value)">
+          <label class="field-label">Normtijd (seconden) <span class="hint">${isIncident ? 'richttijd tot adequate respons' : 'richttijd voor uitvoering'}</span></label>
+          <input type="number" min="0" value="${sc.normTime ?? (isIncident ? 300 : 600)}" oninput="updateFieldNum('normTime', this.value)">
         </div>
         <div class="form-group">
           <label class="field-label">Startlocatie deelnemer</label>
@@ -1887,6 +2038,14 @@ TAB_RENDERERS.basis = function() {
     </div>
   `;
 };
+
+function updateBriefingCounter(len) {
+  const el = document.getElementById('briefing-counter');
+  if (!el) return;
+  const cap = 300;
+  el.textContent = len + '/' + cap;
+  el.style.color = len > cap ? 'var(--amber)' : 'var(--text-dim)';
+}
 
 /* — ROLLEN — */
 TAB_RENDERERS.rollen = function() {
@@ -1952,17 +2111,20 @@ function addRole() {
 TAB_RENDERERS.locaties = function() {
   const sc = STATE.current;
   const locs = sc.locations || [];
+  const isIncident = sc.scenarioType === 'incident';
+  const phases = isIncident ? PHASES_INC : PHASES_PROC;
+  const phaseLabels = isIncident ? PHASE_LABELS_INC : PHASE_LABELS;
   const items = locs.length === 0
     ? `<div class="array-empty">Nog geen locaties gedefinieerd.</div>`
     : locs.map((l, i) => {
-        const phaseDescs = PHASES_PROC.map(p => `
+        const phaseDescs = phases.map(p => `
           <div class="form-group">
-            <label class="field-label">Omschrijving — ${PHASE_LABELS[p]}</label>
+            <label class="field-label">Omschrijving — ${phaseLabels[p]}</label>
             <textarea rows="2" oninput="updateField('locations.${i}.phaseDescriptions.${p}', this.value)">${escapeHtml(l.phaseDescriptions?.[p] || '')}</textarea>
           </div>`).join('');
-        const phaseSlides = PHASES_PROC.map(p => `
+        const phaseSlides = phases.map(p => `
           <div class="form-group">
-            <label class="field-label">Slide-URL — ${PHASE_LABELS[p]}</label>
+            <label class="field-label">Slide-URL — ${phaseLabels[p]}</label>
             <input type="text" value="${escapeAttr(l.phaseSlides?.[p] || '')}" oninput="updateField('locations.${i}.phaseSlides.${p}', this.value)">
           </div>`).join('');
         return `
@@ -2344,7 +2506,10 @@ function addExecuteAction() {
 TAB_RENDERERS.holdpoints = function() {
   const sc = STATE.current;
   const hps = sc.holdPoints || [];
-  const phaseOpts = PHASES_PROC.map(p => ({ v: p, l: PHASE_LABELS[p] }));
+  const isIncident = sc.scenarioType === 'incident';
+  const phaseOpts = isIncident
+    ? PHASES_INC.map(p => ({ v: p, l: PHASE_LABELS_INC[p] }))
+    : PHASES_PROC.map(p => ({ v: p, l: PHASE_LABELS[p] }));
   const items = hps.length === 0
     ? `<div class="array-empty">Nog geen hold-points.</div>`
     : hps.map((hp, i) => {
@@ -2416,9 +2581,163 @@ TAB_RENDERERS.holdpoints = function() {
 };
 
 function addHoldPoint() {
+  const isIncident = STATE.current?.scenarioType === 'incident';
+  const defaultPhase = isIncident ? 'respond' : 'execute';
   arrayAdd('holdPoints', () => ({
-    id: uid('hp'), category: 'lsr', phase: 'execute', lsr: null,
+    id: uid('hp'), category: 'lsr', phase: defaultPhase, lsr: null,
     trigger: '', stopMessage: ''
+  }));
+}
+
+/* — INCIDENT & RESPONS — */
+TAB_RENDERERS.incident = function() {
+  const sc = STATE.current;
+  const inc = sc.incident || {};
+  const settings = sc.settings || {};
+
+  const typeOpts = ['<option value="">— kies type —</option>']
+    .concat(INCIDENT_TYPES.map(t =>
+      `<option value="${t.id}" ${inc.type === t.id ? 'selected' : ''}>${escapeHtml(t.label)}</option>`
+    )).join('');
+
+  const onsetTriggerOpts = [
+    { v: 'immediate',   l: 'Direct na briefing' },
+    { v: 'on-arrival',  l: 'Bij aankomst op locatie' },
+    { v: 'after-delay', l: 'Na vertraging (seconden)' },
+  ].map(o => `<option value="${o.v}" ${inc.onsetTrigger === o.v ? 'selected' : ''}>${escapeHtml(o.l)}</option>`).join('');
+
+  // Response priorities — ordered array editor
+  const priorities = inc.correctResponsePriorities || [];
+  const priorityItems = priorities.length === 0
+    ? `<div class="array-empty">Nog geen respons-prioriteiten gedefinieerd.</div>`
+    : priorities.map((p, i) => `
+        <div class="array-item">
+          <div class="array-item-header">
+            <span class="array-item-label">Prioriteit ${i+1}</span>
+            <div class="array-item-actions">
+              <button class="btn-icon" onclick="arrayMove('incident.correctResponsePriorities', ${i}, -1)">↑</button>
+              <button class="btn-icon" onclick="arrayMove('incident.correctResponsePriorities', ${i}, 1)">↓</button>
+              <button class="btn-icon danger" onclick="arrayRemove('incident.correctResponsePriorities', ${i})">✕</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="field-label">Actie</label>
+            <input type="text" value="${escapeAttr(p.action || '')}" oninput="updateField('incident.correctResponsePriorities.${i}.action', this.value)" placeholder="bv. 'Alarmeren via portofoon naar CRO'">
+          </div>
+          <div class="form-group">
+            <label class="field-label">Rationale <span class="hint">waarom op deze plek in de volgorde</span></label>
+            <textarea rows="2" oninput="updateField('incident.correctResponsePriorities.${i}.rationale', this.value)">${escapeHtml(p.rationale || '')}</textarea>
+          </div>
+        </div>`).join('');
+
+  // Severity → urgentie-intensiteit hint
+  const sev = inc.severity ?? 3;
+  const sevLabels = { 1: 'minimaal', 2: 'laag', 3: 'matig', 4: 'hoog', 5: 'extreem' };
+  const sevColor = sev >= 4 ? 'var(--amber)' : 'var(--text-2)';
+
+  return `
+    <div class="section">
+      <div class="section-title">Incident-definitie</div>
+      <div class="section-help">
+        Het incident dat zich voltrekt zodra de deelnemer ter plekke is (of direct na briefing). Geen werkopdracht, geen SOP — alleen het feit dat er iets gebeurt waarop adequaat gereageerd moet worden.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="field-label">Incident-type <span class="required">*</span></label>
+          <select onchange="updateField('incident.type', this.value)">${typeOpts}</select>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Ernstgraad (1-5) <span class="hint" style="color:${sevColor}">${sevLabels[sev] || ''} — bepaalt visuele urgentie-intensiteit</span></label>
+          <input type="number" min="1" max="5" value="${sev}" oninput="updateFieldNum('incident.severity', this.value); renderTab('incident')">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="field-label">Getroffen gebied / scope</label>
+        <input type="text" value="${escapeAttr(inc.affectedArea || '')}" oninput="updateField('incident.affectedArea', this.value)" placeholder="bv. 'Unit 3 zuidoost, ~15m rond leiding L-204'">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Onset</div>
+      <div class="section-help">Wat de deelnemer als eerste waarneemt — de cue die het incident herkenbaar maakt. Zintuiglijk (zien/horen/ruiken), zo concreet mogelijk.</div>
+      <div class="form-group">
+        <label class="field-label">Onset-cue <span class="required">*</span></label>
+        <textarea rows="3" oninput="updateField('incident.onsetCue', this.value)" placeholder="bv. 'Sissend geluid uit de richting van leiding L-204, geur van gas wordt sterker bij elke stap'">${escapeHtml(inc.onsetCue || '')}</textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="field-label">Trigger-moment</label>
+          <select onchange="updateField('incident.onsetTrigger', this.value); renderTab('incident')">${onsetTriggerOpts}</select>
+        </div>
+        ${inc.onsetTrigger === 'after-delay' ? `
+          <div class="form-group">
+            <label class="field-label">Vertraging (seconden)</label>
+            <input type="number" min="0" value="${inc.onsetDelaySec ?? 0}" oninput="updateFieldNum('incident.onsetDelaySec', this.value)">
+          </div>` : '<div class="form-group"></div>'}
+      </div>
+      <div class="form-group">
+        <label class="field-label">STOP-THINK pauze (seconden) <span class="hint">verplichte reflectietijd na onset-cue, vóór eerste actie. 0 = uit.</span></label>
+        <input type="number" min="0" max="15" value="${settings.stopThinkPauseSec ?? 4}" oninput="updateFieldNum('settings.stopThinkPauseSec', this.value)">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Tijdsdruk & escalatie</div>
+      <div class="section-help">De Player gebruikt dit voor de aflopende timer en het escalatie-narratief in de debrief. Timer pauzeert tijdens de STOP-THINK-pauze.</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="field-label">Responsvenster (seconden) <span class="hint">tijd tot escalatie. 0 = geen timer.</span></label>
+          <input type="number" min="0" value="${inc.responseWindowSec ?? 180}" oninput="updateFieldNum('incident.responseWindowSec', this.value)">
+        </div>
+        <div class="form-group">
+          <label class="field-label" style="display:flex;align-items:center;gap:8px;margin-top:24px">
+            <input type="checkbox" ${inc.showCountdown !== false ? 'checked' : ''} onchange="updateFieldBool('incident.showCountdown', this.checked)">
+            <span>Timer zichtbaar voor deelnemer</span>
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="field-label">Escalatie bij uitblijvende respons <span class="required">*</span><span class="hint">wat gebeurt er als de deelnemer niet of niet adequaat reageert</span></label>
+        <textarea rows="3" oninput="updateField('incident.escalationIfIgnored', this.value)" placeholder="bv. 'Gaswolk drijft binnen ~3 min richting controlekamer. Bij ontstekingsbron explosiegevaar.'">${escapeHtml(inc.escalationIfIgnored || '')}</textarea>
+      </div>
+    </div>
+
+    <div class="array-editor">
+      <div class="array-header">
+        <div>
+          <span class="array-title">Respons-prioriteiten</span>
+          <span class="array-count">${priorities.length}</span>
+        </div>
+        <button class="btn btn-sm" onclick="addResponsePriority()">+ Prioriteit toevoegen</button>
+      </div>
+      <div class="section-help" style="margin-bottom:14px">
+        De gewenste volgorde van handelingen voor een adequate respons. Eerste = hoogste prioriteit (typisch: eigen veiligheid, dan alarmeren, dan zorg voor anderen, dan — indien veilig — bron beheersen). De AI gebruikt deze lijst om de respons te beoordelen in de debrief.
+      </div>
+      <div class="array-items">${priorityItems}</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Veelgemaakte fouten & LSR-risico's</div>
+      <div class="form-group">
+        <label class="field-label">Veelgemaakte fouten <span class="hint">één per regel</span></label>
+        <textarea rows="4" class="mono" oninput="updateField('incident.commonMistakes', this.value.split('\\n').filter(s => s.trim()))" placeholder="Bevriezing — geen actie ondernemen
+Verkeerde prioriteit — eerst zelf bron isoleren in plaats van alarmeren
+Line of Fire — naar de bron toelopen om beter te kunnen kijken">${escapeHtml((inc.commonMistakes || []).join('\n'))}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="field-label">LSR-overtredingen die in dit incident dreigen <span class="hint">één per regel — bv. line-of-fire, energy-isolation</span></label>
+        <textarea rows="3" class="mono" oninput="updateField('incident.lsrViolationsAtRisk', this.value.split('\\n').filter(s => s.trim()))">${escapeHtml((inc.lsrViolationsAtRisk || []).join('\n'))}</textarea>
+      </div>
+    </div>
+  `;
+};
+
+function addResponsePriority() {
+  const arr = STATE.current.incident?.correctResponsePriorities || [];
+  arrayAdd('incident.correctResponsePriorities', () => ({
+    order: arr.length + 1,
+    action: '',
+    rationale: ''
   }));
 }
 
@@ -2564,6 +2883,9 @@ TAB_RENDERERS.beleving = function() {
           <div><span class="array-title">Scenario-specifieke probes</span><span class="array-count">${probes.length}</span></div>
           <button class="btn btn-sm" onclick="addProbe()">+ Probe toevoegen</button>
         </div>
+        ${probes.length > 0 && (ins.mode === 'stil' || ins.mode === 'observerend')
+          ? `<div class="section-warn">Probes worden in mode <strong>${escapeHtml(ins.mode === 'stil' ? 'Stil' : 'Observerend')}</strong> niet gebruikt. Kies <strong>Begeleidend</strong> of <strong>Actief</strong> hierboven om ze te activeren.</div>`
+          : ''}
         <div class="array-items">${probeItems}</div>
       </div>
     </div>
