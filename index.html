@@ -1250,7 +1250,8 @@ function newIncidentScenario() {
     initialEvent: {
       type: 'observation',
       location: '',
-      description: '',
+      description: '',                 // VOLLEDIG — alleen voor AI-regie, niet zichtbaar voor deelnemer
+      participantCue: '',              // KORT/optioneel — wat de deelnemer in beeld ziet; leeg = fallback
       urgency: 'medium',
     },
     expectedActions: [],
@@ -1668,7 +1669,8 @@ function normalizeScenario(sc) {
 
   if (sc.scenarioType === 'incident') {
     // Incident — player-compatible schema garanderen
-    if (!sc.initialEvent)           sc.initialEvent = { type: 'observation', location: '', description: '', urgency: 'medium' };
+    if (!sc.initialEvent)           sc.initialEvent = { type: 'observation', location: '', description: '', participantCue: '', urgency: 'medium' };
+    if (!('participantCue' in sc.initialEvent)) sc.initialEvent.participantCue = '';
     if (!Array.isArray(sc.expectedActions)) sc.expectedActions = [];
     if (!sc.referenceProcedure)     sc.referenceProcedure = { title: '', reference: '', summary: '', guidelines: [] };
     if (!Array.isArray(sc.referenceProcedure.guidelines)) sc.referenceProcedure.guidelines = [];
@@ -2785,7 +2787,7 @@ TAB_RENDERERS.incident = function() {
     <div class="section">
       <div class="section-title">Initial event</div>
       <div class="section-help">
-        Wat de deelnemer als eerste waarneemt — het moment waarop het incident voor hem bestaat. Zo concreet mogelijk (zintuiglijk). Dit is wat de Player toont in de briefing-overgang.
+        Het moment waarop het incident voor de deelnemer bestaat. Let op het onderscheid tussen wat de <strong>AI regisseert</strong> (volledig, verklappend) en wat de <strong>deelnemer in beeld ziet</strong> (kort, niet-verklappend). De deelnemer moet zelf ontdekken wat er aan de hand is.
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -2802,8 +2804,12 @@ TAB_RENDERERS.incident = function() {
         <select onchange="updateField('initialEvent.location', this.value)">${locOptions}</select>
       </div>
       <div class="form-group">
-        <label class="field-label">Wat de deelnemer waarneemt <span class="required">*</span><span class="hint">zintuiglijk, concreet — geluid, geur, beeld, gevoel</span></label>
+        <label class="field-label">Wat zich werkelijk afspeelt <span class="required">*</span><span class="hint">VOLLEDIG en verklappend — alleen voor de AI-regie, de deelnemer ziet dit NIET</span></label>
         <textarea rows="4" oninput="updateField('initialEvent.description', this.value)" placeholder="bv. 'Je loopt je routinerondje. Als je het tankvak passeert hoor je een onmiskenbaar sissend geluid uit de richting van pompput P-204. Aan de wind hangt een licht zoetige geur. De wind komt uit het zuidwesten, in jouw richting.'">${escapeHtml(ie.description || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="field-label">Wat de deelnemer in beeld ziet <span class="hint">optioneel, kort, niet-verklappend — leeg = vaste fallback "Je neemt iets waar. Beoordeel de situatie."</span></label>
+        <input type="text" value="${escapeAttr(ie.participantCue || '')}" oninput="updateField('initialEvent.participantCue', this.value)" placeholder="bv. 'Er trekt iets je aandacht nabij P-204.'">
       </div>
     </div>
 
