@@ -1169,6 +1169,7 @@ function newProceduralScenario() {
       steps: [],
     },
     deviation: {
+      enabled: true,                  // false = pure SOP-uitvoering zonder ingebouwde afwijking
       triggerAfterStepId: '',
       trigger: 'after-step',
       description: '',
@@ -1178,6 +1179,7 @@ function newProceduralScenario() {
       commonMistakes: [],
       lsrViolationsAtRisk: [],
     },
+    observableSignals: [],            // statische omgevingssignalen, zie SIGNIFICANCE_LEVELS
     holdPoints: [],
     instructor: {
       mode: 'observerend',
@@ -1255,6 +1257,7 @@ function newIncidentScenario() {
       urgency: 'medium',
     },
     expectedActions: [],
+    observableSignals: [],            // statische omgevingssignalen, zie SIGNIFICANCE_LEVELS
     participantActionLog: {
       enabled: true,
       placeholder: "Tijd en actie (bv. '13:42 — teruggetrokken naar bovenwindse positie')",
@@ -1666,6 +1669,7 @@ function normalizeScenario(sc) {
   if (!sc.settings)     sc.settings = { debriefDelay: false };
   if (!sc.instructor)   sc.instructor = { mode: 'observerend', endReflectionQuestion: '', sceneSpecificProbes: [] };
   if (!sc.instructor.sceneSpecificProbes) sc.instructor.sceneSpecificProbes = [];
+  if (!Array.isArray(sc.observableSignals)) sc.observableSignals = [];
 
   if (sc.scenarioType === 'incident') {
     // Incident — player-compatible schema garanderen
@@ -1707,10 +1711,12 @@ function normalizeScenario(sc) {
     if (!sc.ambientByPhase) sc.ambientByPhase = {};
     PHASES_PROC.forEach(p => { if (!(p in sc.ambientByPhase)) sc.ambientByPhase[p] = null; });
     if (!sc.deviation)   sc.deviation = {
+      enabled: true,
       triggerAfterStepId: '', trigger: 'after-step', description: '',
       onsetCue: '', rootCause: '', correctResponse: '',
       commonMistakes: [], lsrViolationsAtRisk: []
     };
+    if (sc.deviation && typeof sc.deviation.enabled !== 'boolean') sc.deviation.enabled = true;
     if (!sc.workPermit)  sc.workPermit = { enabled: false, number: '', task: '', validUntil: '',
       requiredPPE: { standardSet: true, additional: [] }, requireLMRA: true, lmraQuestions: [],
       onSiteLMRA: { required: true, prompt: '', confirmLabel: 'LMRA uitgevoerd — situatie veilig', minReflectionSec: 5 } };
@@ -1918,6 +1924,23 @@ function validateScenario(sc) {
     issues.push({ tab:'basis', msg: 'Startlocatie verwijst naar onbekende locatie' });
   }
 
+  // Observable signals — voor beide types
+  if (Array.isArray(sc.observableSignals) && sc.observableSignals.length > 0) {
+    const validPhases = isIncident ? PHASES_INC : ['prep','execute'];
+    const sigTab = isIncident ? 'incident' : 'taak';
+    sc.observableSignals.forEach((s, i) => {
+      if (!s.description?.trim()) {
+        issues.push({ tab: sigTab, msg: `Signaal #${i+1}: beschrijving ontbreekt` });
+      }
+      if (s.locationId && !sc.locations?.find(l => l.id === s.locationId)) {
+        issues.push({ tab: sigTab, msg: `Signaal #${i+1}: locatie verwijst naar onbekende locatie` });
+      }
+      if (s.phase && !validPhases.includes(s.phase)) {
+        issues.push({ tab: sigTab, msg: `Signaal #${i+1}: fase '${s.phase}' is niet geldig voor dit scenariotype` });
+      }
+    });
+  }
+
   if (isIncident) {
     // Incident-specifiek (aligned met player-validatie)
     if (!sc.initialEvent || typeof sc.initialEvent !== 'object') {
@@ -1944,6 +1967,24 @@ function validateScenario(sc) {
     }
     if (sc.workPermit?.onSiteLMRA?.required && !sc.workPermit?.onSiteLMRA?.prompt?.trim()) {
       issues.push({ tab:'permit', msg: 'LMRA op locatie vereist maar geen reflectievraag ingevuld' });
+    }
+    // Deviation-validatie alleen als ingeschakeld
+    if (sc.deviation?.enabled !== false) {
+      if (!sc.deviation?.triggerAfterStepId) {
+        issues.push({ tab:'taak', msg: 'Afwijking ingeschakeld maar geen trigger-stap gekozen' });
+      }
+      if (!sc.deviation?.description?.trim()) {
+        issues.push({ tab:'taak', msg: 'Afwijking-beschrijving ontbreekt' });
+      }
+      if (!sc.deviation?.onsetCue?.trim()) {
+        issues.push({ tab:'taak', msg: 'Afwijking-onsetCue ontbreekt (wat neemt de deelnemer waar)' });
+      }
+    } else {
+      // Bij uitgeschakelde afwijking: hold-points met phase='deviation' worden onbereikbaar
+      const orphanHPs = (sc.holdPoints || []).filter(hp => hp.phase === 'deviation');
+      if (orphanHPs.length) {
+        issues.push({ tab:'holdpoints', msg: `${orphanHPs.length} hold-point(s) staan op fase 'deviation' maar afwijking is uitgeschakeld — wijzig naar execute of secure` });
+      }
     }
     // Startlocatie hoort overeen te komen met de locatie van de prep-fase
     if (sc.participant?.startLocationId && sc.sop?.steps?.length) {
@@ -2082,6 +2123,21 @@ TAB_RENDERERS.basis = function() {
         <textarea rows="3" oninput="updateField('description', this.value)">${escapeHtml(sc.description || '')}</textarea>
       </div>
     </div>
+
+    ${!isIncident ? `
+    <div class="section">
+      <div class="section-title">Scenario-opties</div>
+      <div class="form-group" style="padding:10px 14px;background:var(--surface-sunk);border-radius:var(--r-sm);margin-bottom:6px">
+        <label class="checkbox-row" style="margin:0">
+          <input type="checkbox" ${sc.deviation?.enabled !== false ? 'checked' : ''} onchange="updateFieldBool('deviation.enabled', this.checked); renderTab('basis')">
+          <span class="checkbox-label" style="font-weight:500">Ingebouwde afwijking gebruiken</span>
+        </label>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:6px;margin-left:24px">
+          Uit = pure SOP-uitvoering zonder verstoring (geschikt voor het inoefenen van basisroutine). Hold-points en omgevingssignalen blijven actief — LSR-overtredingen en gemiste signalen kunnen ook tijdens normale uitvoering optreden.
+        </div>
+      </div>
+    </div>
+    ` : ''}
 
     <div class="section">
       <div class="section-title">Briefing</div>
@@ -2267,6 +2323,12 @@ TAB_RENDERERS.locaties = function() {
               <div style="padding:10px 0 0 0">
                 ${phaseDescs}
                 ${phaseSlides}
+              </div>
+            </details>
+            <details style="margin-top:8px">
+              <summary style="cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase">Omgevingssignalen op deze locatie</summary>
+              <div style="padding:10px 0 0 0">
+                ${renderObservableSignalsSection(l.id)}
               </div>
             </details>
           </div>`;
@@ -2482,10 +2544,11 @@ TAB_RENDERERS.taak = function() {
     ${directionBlock('execute')}`;
 
   // — Fase 3: Afwijking —
+  const devEnabled = sc.deviation?.enabled !== false;
   const stepIdOptions = ['<option value="">— bij start fase afwijking —</option>']
     .concat(steps.filter(s => s.phase === 'execute').map(s =>
       `<option value="${escapeAttr(s.id)}" ${sc.deviation?.triggerAfterStepId === s.id ? 'selected' : ''}>na ${escapeHtml(s.id)} — ${escapeHtml(s.label || '')}</option>`)).join('');
-  const devBody = `
+  const devBody = devEnabled ? `
     <div class="sub-head">Afwijking-definitie</div>
     <div class="section-help" style="margin-bottom:10px">De afwijking die optreedt tijdens de uitvoering en de overgang naar Veiligstellen inluidt.</div>
     <div class="form-group">
@@ -2514,7 +2577,8 @@ TAB_RENDERERS.taak = function() {
       <label class="field-label">Veelgemaakte fouten <span class="hint">één per regel</span></label>
       <textarea rows="3" class="mono" oninput="updateField('deviation.commonMistakes', this.value.split('\\n').filter(s => s.trim()))">${escapeHtml((sc.deviation?.commonMistakes || []).join('\n'))}</textarea>
     </div>
-    ${directionBlock('deviation')}`;
+    ${directionBlock('deviation')}` : `
+    <div class="section-help" style="font-style:italic">Geen ingebouwde afwijking. Het scenario verloopt als pure SOP-uitvoering: prep → execute → secure. De toggle staat in het tabblad Scenario onder "Scenario-opties".</div>`;
 
   // — Fase 4: Veiligstellen —
   const secureBody = `
@@ -2557,8 +2621,16 @@ TAB_RENDERERS.taak = function() {
 
     ${phaseBlock('prep', 1, 'Voorbereiding', prepBody, `${prep.count} stappen · ${prepActs.length} acties`)}
     ${phaseBlock('execute', 2, 'Uitvoering', execBody, `${exec.count} stappen · ${execActs.length} acties`)}
-    ${phaseBlock('deviation', 3, 'Afwijking', devBody, sc.deviation?.triggerAfterStepId ? 'trigger ingesteld' : 'geen trigger')}
+    ${phaseBlock('deviation', 3, 'Afwijking', devBody, devEnabled ? (sc.deviation?.triggerAfterStepId ? 'trigger ingesteld' : 'geen trigger') : 'uitgeschakeld')}
     ${phaseBlock('secure', 4, 'Veiligstellen', secureBody, `${secure.count} stappen`)}
+
+    <div class="section">
+      <div class="section-title">Omgevingssignalen</div>
+      <div class="section-help">
+        Optionele waarnemingen die in de omgeving aanwezig zijn (een plas, een verkeerd staande klep, een vreemd geluid). De deelnemer ziet ze altijd zodra hij op de juiste locatie/fase is — de vraag is of hij ze oppikt, en of hij significante signalen onderscheidt van afleiders. Onafhankelijk van de afwijking-toggle. <em>Tip: je kunt ook per-locatie bewerken via de tab Locaties — daar zie je voor elke locatie alleen de signalen op die plek.</em>
+      </div>
+      ${renderObservableSignalsSection()}
+    </div>
   `;
 };
 
@@ -2834,6 +2906,14 @@ TAB_RENDERERS.incident = function() {
     </div>
 
     <div class="section">
+      <div class="section-title">Omgevingssignalen</div>
+      <div class="section-help">
+        Optionele waarnemingen in de omgeving (een plas, klep-stand, vreemd geluid) die los staan van de initial event. De deelnemer ziet ze in de Situatie-tab zodra hij op de juiste locatie/fase is — de vraag is of hij ze oppakt en significante signalen onderscheidt van afleiders.
+      </div>
+      ${renderObservableSignalsSection()}
+    </div>
+
+    <div class="section">
       <div class="section-title">Referentie-procedure (optioneel)</div>
       <div class="section-help">Een beknopte richtlijn die de deelnemer eventueel kan raadplegen tijdens het scenario (Procedure-tab). Niet hetzelfde als een SOP — geen stappen, alleen kernpunten. Laat leeg om de Procedure-tab te verbergen.</div>
       <div class="form-row">
@@ -2890,6 +2970,159 @@ function toggleExpectedActionLsr(idx, lsrKey, on) {
   if (on && at < 0) ea.lsrTags.push(lsrKey);
   if (!on && at >= 0) ea.lsrTags.splice(at, 1);
   markUnsaved();
+}
+
+/* — OBSERVABLE SIGNALS (omgevingssignalen) — */
+// Drie significantieniveaus; de player gebruikt deze voor debrief-weging.
+const SIGNIFICANCE_LEVELS = [
+  { id: 'significant', label: 'Significant — moet opgemerkt en geadresseerd' },
+  { id: 'notable',     label: 'Notable — waardevol om te benoemen' },
+  { id: 'distractor',  label: 'Distractor — afleider, leert prioritering' },
+];
+
+function renderObservableSignalsSection(filterLocationId) {
+  const sc = STATE.current;
+  const isIncident = sc.scenarioType === 'incident';
+  const allSignals = sc.observableSignals || [];
+
+  // Bouw filter + index-mapping: we tonen alleen signalen van deze locatie (indien gefilterd),
+  // maar arrayMove/Remove werken altijd tegen de oorspronkelijke index in observableSignals.
+  const filtered = filterLocationId
+    ? allSignals.map((s, idx) => ({ s, idx })).filter(p => p.s.locationId === filterLocationId)
+    : allSignals.map((s, idx) => ({ s, idx }));
+
+  // Welke fases zijn relevant voor dit scenariotype?
+  const allowedPhases = isIncident
+    ? PHASES_INC.map(p => ({ v: p, l: PHASE_LABELS_INC[p] }))
+    : ['prep','execute'].map(p => ({ v: p, l: PHASE_LABELS[p] }));
+
+  const locOpts = (sel) => ['<option value="">— kies locatie —</option>']
+    .concat((sc.locations || []).map(l =>
+      `<option value="${escapeAttr(l.id)}" ${sel === l.id ? 'selected' : ''}>${escapeHtml(l.label || l.id)}</option>`
+    )).join('');
+
+  const phaseOpts = (sel) => allowedPhases.map(p =>
+    `<option value="${p.v}" ${sel === p.v ? 'selected' : ''}>${escapeHtml(p.l)}</option>`
+  ).join('');
+
+  const sigOpts = (sel) => SIGNIFICANCE_LEVELS.map(s =>
+    `<option value="${s.id}" ${sel === s.id ? 'selected' : ''}>${escapeHtml(s.label)}</option>`
+  ).join('');
+
+  // Mix-tip telt alleen over de zichtbare lijst (locatie-gefilterd óf hele lijst)
+  const counts = { significant:0, notable:0, distractor:0 };
+  filtered.forEach(p => { if (counts[p.s.significance] !== undefined) counts[p.s.significance]++; });
+  const scope = filterLocationId ? ' op deze locatie' : '';
+  const mixHint = filtered.length === 0
+    ? (filterLocationId
+        ? `Nog geen signalen${scope}. Tip: combineer significant + afleider voor realistische oefening.`
+        : 'Tip: combineer meerdere signalen waarvan een deel significant en een deel afleider — een enkel signaal is te opvallend en verklapt zichzelf.')
+    : (counts.significant > 0 && counts.distractor === 0)
+      ? `Tip: voeg ook één of meer afleiders toe${scope} — alleen significante signalen maken de oefening te makkelijk.`
+      : (counts.distractor > 0 && counts.significant === 0)
+        ? `Let op: alleen afleiders${scope}. Zonder significant signaal kan de deelnemer niets terecht oppakken.`
+        : `Mix${scope}: ${counts.significant} significant · ${counts.notable} notable · ${counts.distractor} afleider(s).`;
+
+  // Verbergt locatie-veld als we al gefilterd zijn op één locatie (waarde staat dan vast)
+  const locationFieldHtml = (origIdx, s) => filterLocationId
+    ? ''
+    : `<div class="form-group">
+         <label class="field-label">Locatie</label>
+         <select onchange="updateField('observableSignals.${origIdx}.locationId', this.value)">${locOpts(s.locationId)}</select>
+       </div>`;
+
+  const items = filtered.length === 0
+    ? `<div class="array-empty">${filterLocationId ? 'Nog geen omgevingssignalen op deze locatie.' : "Nog geen omgevingssignalen gedefinieerd."}</div>`
+    : filtered.map(({ s, idx: origIdx }, displayIdx) => `
+        <div class="array-item">
+          <div class="array-item-header">
+            <span class="array-item-label">Signaal #${displayIdx+1} · <code style="font-family:var(--mono);color:var(--text-dim)">${escapeHtml(s.id || '')}</code></span>
+            <div class="array-item-actions">
+              <button class="btn-icon" onclick="arrayMove('observableSignals', ${origIdx}, -1)">↑</button>
+              <button class="btn-icon" onclick="arrayMove('observableSignals', ${origIdx}, 1)">↓</button>
+              <button class="btn-icon danger" onclick="arrayRemove('observableSignals', ${origIdx})">✕</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="field-label">Fase</label>
+              <select onchange="updateField('observableSignals.${origIdx}.phase', this.value)">${phaseOpts(s.phase)}</select>
+            </div>
+            ${filterLocationId ? `
+              <div class="form-group">
+                <label class="field-label">Significantie</label>
+                <select onchange="updateField('observableSignals.${origIdx}.significance', this.value)">${sigOpts(s.significance)}</select>
+              </div>
+            ` : `
+              <div class="form-group">
+                <label class="field-label">Locatie</label>
+                <select onchange="updateField('observableSignals.${origIdx}.locationId', this.value)">${locOpts(s.locationId)}</select>
+              </div>
+            `}
+          </div>
+          ${filterLocationId ? '' : `
+            <div class="form-group">
+              <label class="field-label">Significantie</label>
+              <select onchange="updateField('observableSignals.${origIdx}.significance', this.value)">${sigOpts(s.significance)}</select>
+            </div>
+          `}
+          <div class="form-group">
+            <label class="field-label">Wat de deelnemer waarneemt <span class="hint">zintuiglijk, concreet</span></label>
+            <textarea rows="2" oninput="updateField('observableSignals.${origIdx}.description', this.value)" placeholder="bv. 'Onder flens F-12 ligt een kleine, donkergetinte plas — niet groter dan een hand.'">${escapeHtml(s.description || '')}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="field-label">Verwachte respons <span class="hint">wat zou een goede operator hiermee doen? bij afleider: niets, of kort verifiëren</span></label>
+            <textarea rows="2" oninput="updateField('observableSignals.${origIdx}.expectedResponse', this.value)" placeholder="bv. 'Melden bij CRO, oorsprong onderzoeken voordat de pomp wordt gestart.'">${escapeHtml(s.expectedResponse || '')}</textarea>
+          </div>
+        </div>`).join('');
+
+  const addBtnLabel = filterLocationId ? '+ Signaal op deze locatie' : '+ Signaal toevoegen';
+  const addCall = filterLocationId
+    ? `addObservableSignalForLocation('${escapeAttr(filterLocationId)}')`
+    : 'addObservableSignal()';
+
+  return `
+    <div class="array-editor" style="margin-top:14px">
+      <div class="array-header">
+        <div>
+          <span class="array-title">Omgevingssignalen${filterLocationId ? ' op deze locatie' : ''}</span>
+          <span class="array-count">${filtered.length}</span>
+        </div>
+        <button class="btn btn-sm" onclick="${addCall}">${addBtnLabel}</button>
+      </div>
+      <div class="section-help" style="margin-bottom:14px">
+        Statische signalen die de deelnemer in de Situatie-tab waarneemt zodra hij op de juiste locatie/fase is. Anders dan een afwijking is een signaal niet getriggerd — het ligt er gewoon. <strong>${escapeHtml(mixHint)}</strong>
+      </div>
+      <div class="array-items">${items}</div>
+    </div>`;
+}
+
+function addObservableSignal() {
+  const sc = STATE.current;
+  const isIncident = sc.scenarioType === 'incident';
+  const defaultPhase = isIncident ? 'assess' : 'prep';
+  arrayAdd('observableSignals', () => ({
+    id: uid('sig'),
+    phase: defaultPhase,
+    locationId: '',
+    description: '',
+    significance: 'significant',
+    expectedResponse: ''
+  }));
+}
+
+function addObservableSignalForLocation(locationId) {
+  const sc = STATE.current;
+  const isIncident = sc.scenarioType === 'incident';
+  const defaultPhase = isIncident ? 'assess' : 'prep';
+  arrayAdd('observableSignals', () => ({
+    id: uid('sig'),
+    phase: defaultPhase,
+    locationId: locationId,
+    description: '',
+    significance: 'significant',
+    expectedResponse: ''
+  }));
 }
 
 /* — WERKVERGUNNING — */
