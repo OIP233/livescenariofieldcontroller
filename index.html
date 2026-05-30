@@ -1180,6 +1180,10 @@ function newProceduralScenario() {
       lsrViolationsAtRisk: [],
     },
     observableSignals: [],            // statische omgevingssignalen, zie SIGNIFICANCE_LEVELS
+    participantActionLog: {
+      enabled: true,
+      placeholder: "Tijd en actie (bv. '11:42 — manometer trilling gemeld bij CRO')",
+    },
     holdPoints: [],
     instructor: {
       mode: 'observerend',
@@ -1670,6 +1674,8 @@ function normalizeScenario(sc) {
   if (!sc.instructor)   sc.instructor = { mode: 'observerend', endReflectionQuestion: '', sceneSpecificProbes: [] };
   if (!sc.instructor.sceneSpecificProbes) sc.instructor.sceneSpecificProbes = [];
   if (!Array.isArray(sc.observableSignals)) sc.observableSignals = [];
+  if (!sc.participantActionLog) sc.participantActionLog = { enabled: true, placeholder: '' };
+  if (typeof sc.participantActionLog.enabled !== 'boolean') sc.participantActionLog.enabled = true;
 
   if (sc.scenarioType === 'incident') {
     // Incident — player-compatible schema garanderen
@@ -1678,7 +1684,6 @@ function normalizeScenario(sc) {
     if (!Array.isArray(sc.expectedActions)) sc.expectedActions = [];
     if (!sc.referenceProcedure)     sc.referenceProcedure = { title: '', reference: '', summary: '', guidelines: [] };
     if (!Array.isArray(sc.referenceProcedure.guidelines)) sc.referenceProcedure.guidelines = [];
-    if (!sc.participantActionLog)   sc.participantActionLog = { enabled: true, placeholder: '' };
     if (!sc.phaseConfig)            sc.phaseConfig = {};
     PHASES_INC.forEach(p => { if (!sc.phaseConfig[p]) sc.phaseConfig[p] = { dir: '' }; });
     // Strip legacy phase keys (onset/respond/secure waren v5)
@@ -2277,6 +2282,9 @@ TAB_RENDERERS.locaties = function() {
   const isIncident = sc.scenarioType === 'incident';
   const phases = isIncident ? PHASES_INC : PHASES_PROC;
   const phaseLabels = isIncident ? PHASE_LABELS_INC : PHASE_LABELS;
+  // Houd per locatie de open-state van de twee details-secties bij,
+  // zodat re-renders (bv. na "+ Signaal") ze niet dichtklappen.
+  STATE._locOpen = STATE._locOpen || {};
   const items = locs.length === 0
     ? `<div class="array-empty">Nog geen locaties gedefinieerd.</div>`
     : locs.map((l, i) => {
@@ -2318,14 +2326,14 @@ TAB_RENDERERS.locaties = function() {
               <label class="field-label">Default slide-URL</label>
               <input type="text" value="${escapeAttr(l.defaultSlideUrl || '')}" oninput="updateField('locations.${i}.defaultSlideUrl', this.value)">
             </div>
-            <details style="margin-top:8px">
+            <details style="margin-top:8px" ${STATE._locOpen[l.id + ':phases'] ? 'open' : ''} ontoggle="onLocDetailsToggle('${escapeAttr(l.id)}','phases', this.open)">
               <summary style="cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase">Fase-specifieke teksten en slides</summary>
               <div style="padding:10px 0 0 0">
                 ${phaseDescs}
                 ${phaseSlides}
               </div>
             </details>
-            <details style="margin-top:8px">
+            <details style="margin-top:8px" ${STATE._locOpen[l.id + ':signals'] ? 'open' : ''} ontoggle="onLocDetailsToggle('${escapeAttr(l.id)}','signals', this.open)">
               <summary style="cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase">Omgevingssignalen op deze locatie</summary>
               <div style="padding:10px 0 0 0">
                 ${renderObservableSignalsSection(l.id)}
@@ -2630,6 +2638,19 @@ TAB_RENDERERS.taak = function() {
         Optionele waarnemingen die in de omgeving aanwezig zijn (een plas, een verkeerd staande klep, een vreemd geluid). De deelnemer ziet ze altijd zodra hij op de juiste locatie/fase is — de vraag is of hij ze oppikt, en of hij significante signalen onderscheidt van afleiders. Onafhankelijk van de afwijking-toggle. <em>Tip: je kunt ook per-locatie bewerken via de tab Locaties — daar zie je voor elke locatie alleen de signalen op die plek.</em>
       </div>
       ${renderObservableSignalsSection()}
+    </div>
+
+    <div class="section">
+      <div class="section-title">Deelnemer-actielog</div>
+      <div class="section-help">Een eenvoudig kladblok waarin de deelnemer zelf kan noteren wat hij doet en wanneer. Geen tijdregistratie door het systeem — de deelnemer schrijft zelf '11:42 — manometer trilling gemeld bij CRO'. Wordt meegenomen in de debrief.</div>
+      <label class="checkbox-row" style="margin-bottom:10px">
+        <input type="checkbox" ${sc.participantActionLog?.enabled !== false ? 'checked' : ''} onchange="updateFieldBool('participantActionLog.enabled', this.checked)">
+        <span class="checkbox-label">Actielog beschikbaar voor deelnemer</span>
+      </label>
+      <div class="form-group">
+        <label class="field-label">Placeholder-tekst</label>
+        <input type="text" value="${escapeAttr(sc.participantActionLog?.placeholder || '')}" oninput="updateField('participantActionLog.placeholder', this.value)" placeholder="bv. 'Tijd en actie'">
+      </div>
     </div>
   `;
 };
@@ -3115,6 +3136,9 @@ function addObservableSignalForLocation(locationId) {
   const sc = STATE.current;
   const isIncident = sc.scenarioType === 'incident';
   const defaultPhase = isIncident ? 'assess' : 'prep';
+  // Zorg dat de details-sectie open blijft na re-render
+  STATE._locOpen = STATE._locOpen || {};
+  STATE._locOpen[locationId + ':signals'] = true;
   arrayAdd('observableSignals', () => ({
     id: uid('sig'),
     phase: defaultPhase,
@@ -3123,6 +3147,11 @@ function addObservableSignalForLocation(locationId) {
     significance: 'significant',
     expectedResponse: ''
   }));
+}
+
+function onLocDetailsToggle(locId, which, isOpen) {
+  STATE._locOpen = STATE._locOpen || {};
+  STATE._locOpen[locId + ':' + which] = !!isOpen;
 }
 
 /* — WERKVERGUNNING — */
